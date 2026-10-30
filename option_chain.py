@@ -1,10 +1,10 @@
 """
-Option Chain Pro - Clean UI (v5.4) - Fast Version
-- Session reuse (no extra requests every time)
-- Cache TTL = 3 sec (fresh data)
+Option Chain Pro - Clean UI (v5.5)
+- Session reuse
+- Cache TTL = 3 sec
 - Auto refresh every 3 seconds
 - Bid/Ask multi-key fallback
-- No full page blink
+- Averages row above the chain table
 """
 import time
 from datetime import datetime
@@ -20,8 +20,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-REFRESH_SECONDS = 3          # UI refresh interval
-CACHE_TTL = 3                # Data cache (seconds)
+REFRESH_SECONDS = 3
+CACHE_TTL = 3
 
 NSE_HOME = "https://www.nseindia.com"
 NSE_API_V3 = f"{NSE_HOME}/api/option-chain-v3"
@@ -67,7 +67,6 @@ GREEN = "#00a05a"
 RED = "#e0445a"
 
 
-# -------------------- Session (reused, not recreated every time) --------------------
 @st.cache_resource
 def get_nse_session():
     s = requests.Session()
@@ -388,6 +387,59 @@ def _cell(side, name, val, itm, col_max, is_max_oi):
     return f'<td class="{cls.strip()}" style="{style}">{txt}</td>'
 
 
+def render_averages(view: pd.DataFrame, cols: list) -> str:
+    """Calls + Puts ke averages — table ke upar."""
+    if view.empty:
+        return ""
+
+    def avg(col):
+        if col not in view.columns:
+            return "-"
+        s = view[col].replace(0, pd.NA).dropna()
+        if s.empty:
+            return "-"
+        val = float(s.mean())
+        if any(x in col for x in ["IV", "Chg%", "LTP", "Bid", "Ask"]):
+            return f"{val:,.2f}"
+        return f"{val:,.0f}"
+
+    call_names = [n for n, _ in cols]
+    put_names = list(reversed(call_names))
+
+    c_cells = "".join(
+        f'<td style="background:#fff3e0;font-weight:700;text-align:center;padding:7px 6px;">{avg(f"C {n}")}</td>'
+        for n in call_names
+    )
+    strike_cell = '<td style="background:#e3f2fd;font-weight:800;text-align:center;color:#1a3cff;padding:7px 6px;">AVG</td>'
+    p_cells = "".join(
+        f'<td style="background:#e8f5e9;font-weight:700;text-align:center;padding:7px 6px;">{avg(f"P {n}")}</td>'
+        for n in put_names
+    )
+
+    html = f'''
+    <div class="ocw" style="margin-bottom:12px;">
+        <table class="oc">
+            <thead>
+                <tr>
+                    <th colspan="{len(call_names)}" class="hc" style="font-size:12px;">CALLS — Average</th>
+                    <th class="hs" style="font-size:12px;">Strike</th>
+                    <th colspan="{len(put_names)}" class="hp" style="font-size:12px;">PUTS — Average</th>
+                </tr>
+                <tr>
+                    {"".join(f'<th class="hc2">{n}</th>' for n in call_names)}
+                    <th class="hs"></th>
+                    {"".join(f'<th class="hp2">{n}</th>' for n in put_names)}
+                </tr>
+            </thead>
+            <tbody>
+                <tr>{c_cells}{strike_cell}{p_cells}</tr>
+            </tbody>
+        </table>
+    </div>
+    '''
+    return html
+
+
 def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str:
     call_names = [n for n, _ in cols]
     put_names = list(reversed(call_names))
@@ -491,7 +543,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------- Symbol Selection ----------
 if "symbol" not in st.session_state:
     st.session_state.symbol = "NIFTY"
 
@@ -512,7 +563,6 @@ for idx, sym in enumerate(POPULAR_SYMBOLS):
 symbol = st.session_state.symbol
 
 
-# ---------- Data Section (Fragment) ----------
 @st.fragment(run_every=REFRESH_SECONDS)
 def data_section():
     try:
@@ -558,7 +608,6 @@ def data_section():
     resistance = full.loc[full["C OI"].idxmax(), "Strike"]
     support = full.loc[full["P OI"].idxmax(), "Strike"]
 
-    # Metrics
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Spot", f"{spot:,.2f}")
     m2.metric("ATM", f"{atm:,.0f}")
@@ -572,21 +621,23 @@ def data_section():
         unsafe_allow_html=True
     )
 
-    # Bid/Ask note
     has_bid_ask = False
     if "C Bid" in full.columns and "C Ask" in full.columns:
         has_bid_ask = (full["C Bid"].sum() + full["C Ask"].sum() + full["P Bid"].sum() + full["P Ask"].sum()) > 0
     if view_mode.startswith("Full") and not has_bid_ask:
         st.caption("⚠️ NSE public API currently does not send Bid/Ask. Columns will fill if NSE restores the data.")
 
-    # Table
     st.markdown('<div class="section-title">Option Chain</div>', unsafe_allow_html=True)
     lo = max(atm_pos - n_strikes, 0)
     hi = min(atm_pos + n_strikes + 1, len(full))
     view = full.iloc[lo:hi].reset_index(drop=True)
+
+    # ---- Averages (upar) ----
+    st.markdown(render_averages(view, cols_list), unsafe_allow_html=True)
+
+    # ---- Main Table ----
     st.markdown(render_table(view, spot, atm, cols_list), unsafe_allow_html=True)
 
-    # Charts
     st.markdown('<div class="section-title">Open Interest & Volume</div>', unsafe_allow_html=True)
     ca, cb = st.columns([3.1, 1.1])
     with ca:
