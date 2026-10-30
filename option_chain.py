@@ -1,10 +1,13 @@
 """
-Option Chain Pro - Clean UI (v5.5)
-- Session reuse
-- Cache TTL = 3 sec
-- Auto refresh every 3 seconds
-- Bid/Ask multi-key fallback
-- Averages row above the chain table
+Option Chain Pro - Clean UI (v5.6)
+Features:
+- OI Buildup Labels (Long Buildup / Short Covering / Short Buildup / Long Unwinding)
+- ATM Straddle + Expected Move
+- India VIX
+- Most Active Strikes highlight
+- IV Skew chart
+- Session reuse + fast refresh
+- Averages row
 """
 import time
 from datetime import datetime
@@ -26,6 +29,7 @@ CACHE_TTL = 3
 NSE_HOME = "https://www.nseindia.com"
 NSE_API_V3 = f"{NSE_HOME}/api/option-chain-v3"
 NSE_CONTRACT_INFO = f"{NSE_HOME}/api/option-chain-contract-info"
+NSE_INDICES = f"{NSE_HOME}/api/allIndices"
 
 HEADERS = {
     "User-Agent": (
@@ -123,6 +127,21 @@ def fetch_nse_data(symbol: str, expiry: str):
     raise RuntimeError(f"NSE se data nahi aaya ({symbol}): {last_err}")
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_india_vix():
+    try:
+        s = get_nse_session()
+        r = s.get(NSE_INDICES, timeout=8)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        for item in data:
+            if item.get("index") == "INDIA VIX":
+                return float(item.get("last", 0) or 0), float(item.get("percentChange", 0) or 0)
+    except Exception:
+        pass
+    return 0.0, 0.0
+
+
 def _normalize_expiry(exp: str) -> str:
     if not exp:
         return ""
@@ -144,6 +163,26 @@ def _get_bid_ask(side_data: dict, which: str):
             except (TypeError, ValueError):
                 pass
     return 0
+
+
+def _buildup_label(price_chg: float, oi_chg: float) -> str:
+    """
+    Price ↑ + OI ↑  → Long Buildup      (Bullish)
+    Price ↑ + OI ↓  → Short Covering    (Bullish)
+    Price ↓ + OI ↑  → Short Buildup     (Bearish)
+    Price ↓ + OI ↓  → Long Unwinding    (Bearish)
+    """
+    if price_chg == 0 or oi_chg == 0:
+        return ""
+    if price_chg > 0 and oi_chg > 0:
+        return "LB"      # Long Buildup
+    if price_chg > 0 and oi_chg < 0:
+        return "SC"      # Short Covering
+    if price_chg < 0 and oi_chg > 0:
+        return "SB"      # Short Buildup
+    if price_chg < 0 and oi_chg < 0:
+        return "LU"      # Long Unwinding
+    return ""
 
 
 def build_chain(records: dict, expiry: str) -> pd.DataFrame:
@@ -173,12 +212,18 @@ def build_chain(records: dict, expiry: str) -> pd.DataFrame:
             else:
                 row[f"C {name}"] = ce.get(key) or 0
                 row[f"P {name}"] = pe.get(key) or 0
+
         row["C OI"] = ce.get("openInterest") or 0
         row["P OI"] = pe.get("openInterest") or 0
         row["C dOI"] = ce.get("changeinOpenInterest") or 0
         row["P dOI"] = pe.get("changeinOpenInterest") or 0
         row["C Vol"] = ce.get("totalTradedVolume") or 0
         row["P Vol"] = pe.get("totalTradedVolume") or 0
+
+        # OI Buildup labels
+        row["C Buildup"] = _buildup_label(row.get("C Chg%", 0), row.get("C dOI", 0))
+        row["P Buildup"] = _buildup_label(row.get("P Chg%", 0), row.get("P dOI", 0))
+
         rows.append(row)
 
     if not rows:
@@ -205,6 +250,8 @@ def build_chain(records: dict, expiry: str) -> pd.DataFrame:
             row["P dOI"] = pe.get("changeinOpenInterest") or 0
             row["C Vol"] = ce.get("totalTradedVolume") or 0
             row["P Vol"] = pe.get("totalTradedVolume") or 0
+            row["C Buildup"] = _buildup_label(row.get("C Chg%", 0), row.get("C dOI", 0))
+            row["P Buildup"] = _buildup_label(row.get("P Chg%", 0), row.get("P dOI", 0))
             rows.append(row)
 
     if not rows:
@@ -325,6 +372,10 @@ td.stk.atm {
     margin-left: 5px;
     font-weight: 800;
 }
+.bu-lb { background:#c8e6c9; color:#1b5e20; font-size:10px; font-weight:700; border-radius:3px; padding:1px 4px; }
+.bu-sc { background:#bbdefb; color:#0d47a1; font-size:10px; font-weight:700; border-radius:3px; padding:1px 4px; }
+.bu-sb { background:#ffcdd2; color:#b71c1c; font-size:10px; font-weight:700; border-radius:3px; padding:1px 4px; }
+.bu-lu { background:#fff9c4; color:#f57f17; font-size:10px; font-weight:700; border-radius:3px; padding:1px 4px; }
 tr.atmrow td {
     border-top: 2px solid #1a3cff;
     border-bottom: 2px solid #1a3cff;
@@ -333,6 +384,7 @@ td.pos { color: #0a8f3c; font-weight: 600; }
 td.neg { color: #d32f2f; font-weight: 600; }
 td.mxc { box-shadow: inset 0 0 0 2px #d32f2f; font-weight: 800; }
 td.mxp { box-shadow: inset 0 0 0 2px #0a8f3c; font-weight: 800; }
+td.active-vol { box-shadow: inset 0 0 0 2px #7b1fa2; }
 .lg {
     display: flex;
     gap: 14px;
@@ -355,6 +407,13 @@ td.mxp { box-shadow: inset 0 0 0 2px #0a8f3c; font-weight: 800; }
     color: #6b7280;
     margin: 6px 0 4px 0;
 }
+.buildup-legend {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 6px 0 10px 0;
+    font-size: 12px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -367,7 +426,7 @@ def _fmt(val, name):
     return f"{val:,.0f}"
 
 
-def _cell(side, name, val, itm, col_max, is_max_oi):
+def _cell(side, name, val, itm, col_max, is_max_oi, is_active_vol=False):
     bg = "#fff3c4" if itm else "#ffffff"
     style = f"background:{bg};"
     txt = _fmt(val, name)
@@ -384,11 +443,27 @@ def _cell(side, name, val, itm, col_max, is_max_oi):
         )
     if name == "OI" and is_max_oi:
         cls += " mxc" if side == "C" else " mxp"
+    if name == "Vol" and is_active_vol:
+        cls += " active-vol"
     return f'<td class="{cls.strip()}" style="{style}">{txt}</td>'
 
 
+def _buildup_badge(label: str) -> str:
+    if not label:
+        return ""
+    mapping = {
+        "LB": ("bu-lb", "LB"),
+        "SC": ("bu-sc", "SC"),
+        "SB": ("bu-sb", "SB"),
+        "LU": ("bu-lu", "LU"),
+    }
+    cls, txt = mapping.get(label, ("", ""))
+    if not cls:
+        return ""
+    return f'<span class="{cls}">{txt}</span>'
+
+
 def render_averages(view: pd.DataFrame, cols: list) -> str:
-    """Calls + Puts ke averages — table ke upar."""
     if view.empty:
         return ""
 
@@ -416,7 +491,7 @@ def render_averages(view: pd.DataFrame, cols: list) -> str:
         for n in put_names
     )
 
-    html = f'''
+    return f'''
     <div class="ocw" style="margin-bottom:12px;">
         <table class="oc">
             <thead>
@@ -437,7 +512,6 @@ def render_averages(view: pd.DataFrame, cols: list) -> str:
         </table>
     </div>
     '''
-    return html
 
 
 def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str:
@@ -449,8 +523,14 @@ def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str
             key = f"{s} {n}"
             if key in view.columns:
                 col_max[key] = max(float(view[key].max()), 1.0)
+
     max_c = view.loc[view["C OI"].idxmax(), "Strike"] if not view.empty else 0
     max_p = view.loc[view["P OI"].idxmax(), "Strike"] if not view.empty else 0
+
+    # Most active by volume
+    max_c_vol = view.loc[view["C Vol"].idxmax(), "Strike"] if not view.empty and view["C Vol"].max() > 0 else 0
+    max_p_vol = view.loc[view["P Vol"].idxmax(), "Strike"] if not view.empty and view["P Vol"].max() > 0 else 0
+
     h = ['<div class="ocw"><table class="oc"><thead>']
     h.append(
         f'<tr><th colspan="{len(call_names)}" class="hc">CALLS</th>'
@@ -463,24 +543,40 @@ def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str
         + "".join(f'<th class="hp2">{n}</th>' for n in put_names)
         + "</tr></thead><tbody>"
     )
+
     for _, r in view.iterrows():
         k = r["Strike"]
         call_itm = k < spot
         put_itm = k > spot
         row_cls = "atmrow" if k == atm else ""
-        cells = [
-            _cell("C", n, r.get(f"C {n}", 0), call_itm, col_max.get(f"C {n}", 1), k == max_c)
-            for n in call_names
-        ]
+
+        cells = []
+        for n in call_names:
+            cell = _cell("C", n, r.get(f"C {n}", 0), call_itm, col_max.get(f"C {n}", 1),
+                         k == max_c, k == max_c_vol and n == "Vol")
+            # Buildup badge on OI Chg column
+            if n == "OI Chg":
+                badge = _buildup_badge(r.get("C Buildup", ""))
+                if badge:
+                    cell = cell.replace("</td>", f" {badge}</td>")
+            cells.append(cell)
+
         if k == atm:
             cells.append(f'<td class="stk atm">{k:,.0f}<span class="tag">ATM</span></td>')
         else:
             cells.append(f'<td class="stk">{k:,.0f}</td>')
-        cells += [
-            _cell("P", n, r.get(f"P {n}", 0), put_itm, col_max.get(f"P {n}", 1), k == max_p)
-            for n in put_names
-        ]
+
+        for n in put_names:
+            cell = _cell("P", n, r.get(f"P {n}", 0), put_itm, col_max.get(f"P {n}", 1),
+                         k == max_p, k == max_p_vol and n == "Vol")
+            if n == "OI Chg":
+                badge = _buildup_badge(r.get("P Buildup", ""))
+                if badge:
+                    cell = cell.replace("</td>", f" {badge}</td>")
+            cells.append(cell)
+
         h.append(f'<tr class="{row_cls}">' + "".join(cells) + "</tr>")
+
     h.append("</tbody></table></div>")
     h.append(
         '<div class="lg">'
@@ -489,6 +585,15 @@ def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str
         '<div><span class="b" style="background:#1a3cff"></span>ATM</div>'
         '<div><span class="b" style="box-shadow:inset 0 0 0 2px #d32f2f"></span>Max Call OI</div>'
         '<div><span class="b" style="box-shadow:inset 0 0 0 2px #0a8f3c"></span>Max Put OI</div>'
+        '<div><span class="b" style="box-shadow:inset 0 0 0 2px #7b1fa2"></span>Most Active Vol</div>'
+        "</div>"
+    )
+    h.append(
+        '<div class="buildup-legend">'
+        '<span class="bu-lb">LB</span> Long Buildup (Bullish) &nbsp;'
+        '<span class="bu-sc">SC</span> Short Covering (Bullish) &nbsp;'
+        '<span class="bu-sb">SB</span> Short Buildup (Bearish) &nbsp;'
+        '<span class="bu-lu">LU</span> Long Unwinding (Bearish)'
         "</div>"
     )
     return "".join(h)
@@ -532,6 +637,30 @@ def total_oi_chart(call_oi, put_oi, pcr):
         yaxis=dict(tickformat=".3s", gridcolor="#f1f5f9", range=[0, max(put_oi, call_oi) * 1.2]),
         xaxis=dict(showgrid=False), showlegend=False,
         plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+    )
+    return fig
+
+
+def iv_skew_chart(view, spot):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=view["Strike"], y=view["C IV"], mode="lines+markers",
+        name="Call IV", line=dict(color=RED, width=2), marker=dict(size=6)
+    ))
+    fig.add_trace(go.Scatter(
+        x=view["Strike"], y=view["P IV"], mode="lines+markers",
+        name="Put IV", line=dict(color=GREEN, width=2), marker=dict(size=6)
+    ))
+    fig.add_vline(x=spot, line_dash="dash", line_color="#111827", line_width=1.5,
+                  annotation_text=f"Spot {spot:,.0f}", annotation_position="top")
+    fig.update_layout(
+        title=dict(text="IV Skew (Call IV vs Put IV)", font=dict(size=14, color="#111827"), x=0.01, xanchor="left"),
+        template="plotly_white", height=320,
+        margin=dict(l=40, r=15, t=45, b=45),
+        legend=dict(orientation="h", y=1.12, x=1, xanchor="right"),
+        xaxis=dict(tickangle=-40, tickfont=dict(size=10), showgrid=False),
+        yaxis=dict(title="IV %", tickfont=dict(size=10), gridcolor="#f1f5f9"),
+        hovermode="x unified", plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
     )
     return fig
 
@@ -608,6 +737,23 @@ def data_section():
     resistance = full.loc[full["C OI"].idxmax(), "Strike"]
     support = full.loc[full["P OI"].idxmax(), "Strike"]
 
+    # ATM Straddle + Expected Move
+    atm_row = full.loc[atm_pos]
+    ce_ltp = float(atm_row.get("C LTP", 0) or 0)
+    pe_ltp = float(atm_row.get("P LTP", 0) or 0)
+    straddle = ce_ltp + pe_ltp
+    expected_move_pct = (straddle / spot * 100) if spot else 0
+    expected_up = spot + straddle
+    expected_down = spot - straddle
+
+    # India VIX
+    vix, vix_chg = fetch_india_vix()
+
+    # Most Active
+    max_c_vol_strike = full.loc[full["C Vol"].idxmax(), "Strike"] if full["C Vol"].max() > 0 else 0
+    max_p_vol_strike = full.loc[full["P Vol"].idxmax(), "Strike"] if full["P Vol"].max() > 0 else 0
+
+    # Metrics Row 1
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Spot", f"{spot:,.2f}")
     m2.metric("ATM", f"{atm:,.0f}")
@@ -615,6 +761,15 @@ def data_section():
     m4.metric("Support", f"{support:,.0f}")
     m5.metric("Resistance", f"{resistance:,.0f}")
     m6.metric("Max Pain", f"{max_pain:,.0f}")
+
+    # Metrics Row 2 — Straddle + VIX + Active
+    s1, s2, s3, s4, s5, s6 = st.columns(6)
+    s1.metric("ATM Straddle", f"{straddle:,.1f}")
+    s2.metric("Expected Move", f"±{straddle:,.0f} ({expected_move_pct:.1f}%)")
+    s3.metric("Range", f"{expected_down:,.0f} – {expected_up:,.0f}")
+    s4.metric("India VIX", f"{vix:.2f}", f"{vix_chg:+.2f}%")
+    s5.metric("Most Active CE", f"{max_c_vol_strike:,.0f}")
+    s6.metric("Most Active PE", f"{max_p_vol_strike:,.0f}")
 
     st.markdown(
         f'<div class="info-text">NSE Time: {nse_time} &nbsp;•&nbsp; Last refresh: {fetched_at.strftime("%H:%M:%S")} &nbsp;•&nbsp; Auto every {REFRESH_SECONDS}s</div>',
@@ -632,10 +787,7 @@ def data_section():
     hi = min(atm_pos + n_strikes + 1, len(full))
     view = full.iloc[lo:hi].reset_index(drop=True)
 
-    # ---- Averages (upar) ----
     st.markdown(render_averages(view, cols_list), unsafe_allow_html=True)
-
-    # ---- Main Table ----
     st.markdown(render_table(view, spot, atm, cols_list), unsafe_allow_html=True)
 
     st.markdown('<div class="section-title">Open Interest & Volume</div>', unsafe_allow_html=True)
@@ -656,6 +808,13 @@ def data_section():
     )
     st.plotly_chart(
         grouped_chart(view, spot, "C Vol", "P Vol", f"Volume — {symbol} {expiry}"),
+        use_container_width=True, theme=None, config={"displayModeBar": False}
+    )
+
+    # IV Skew
+    st.markdown('<div class="section-title">IV Skew</div>', unsafe_allow_html=True)
+    st.plotly_chart(
+        iv_skew_chart(view, spot),
         use_container_width=True, theme=None, config={"displayModeBar": False}
     )
 
