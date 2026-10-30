@@ -1,10 +1,9 @@
 """
-Option Chain Pro - Clean UI (v5.5)
-- Session reuse
-- Cache TTL = 3 sec
-- Auto refresh every 3 seconds
+Option Chain Pro - Clean UI (v5.5.1)
+- Better UI/UX only (logic same)
+- Session reuse, Cache TTL=3s, Auto refresh 3s
 - Bid/Ask multi-key fallback
-- Averages row above the chain table
+- Averages row above chain table
 """
 import time
 from datetime import datetime
@@ -226,135 +225,237 @@ def calculate_max_pain(df: pd.DataFrame) -> float:
     return float(strikes[pain.index(min(pain))])
 
 
-# -------------------- CSS --------------------
+# -------------------- CSS (Improved UI) --------------------
 st.markdown("""
 <style>
-.main .block-container {
-    padding-top: 1.2rem;
-    padding-bottom: 2rem;
-    max-width: 1400px;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
+
+.main .block-container {
+    padding-top: 1rem;
+    padding-bottom: 2.5rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    max-width: 1480px;
+}
+
+/* Header */
 .main-title {
-    font-size: 1.7rem;
+    font-size: 1.65rem;
     font-weight: 700;
-    color: #111827;
-    margin-bottom: 2px;
+    color: #0f172a;
+    letter-spacing: -0.03em;
+    margin-bottom: 0;
+    line-height: 1.2;
 }
 .main-subtitle {
-    font-size: 0.88rem;
-    color: #6b7280;
-    margin-bottom: 1.2rem;
+    font-size: 0.82rem;
+    color: #64748b;
+    margin-top: 2px;
+    margin-bottom: 1.1rem;
+    font-weight: 500;
 }
+
+/* Symbol buttons */
+div[data-testid="stHorizontalBlock"] button {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 0.8rem !important;
+    height: 36px !important;
+    transition: all 0.15s ease !important;
+}
+div[data-testid="stHorizontalBlock"] button[kind="primary"] {
+    background: #1a3cff !important;
+    border-color: #1a3cff !important;
+}
+div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
+    background: #f8fafc !important;
+    border: 1.5px solid #e2e8f0 !important;
+    color: #334155 !important;
+}
+div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
+    background: #eff6ff !important;
+    border-color: #93c5fd !important;
+    color: #1e40af !important;
+}
+
+/* Metrics */
 div[data-testid="stMetric"] {
     background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 12px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 14px 16px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
 }
 div[data-testid="stMetric"] label {
-    font-size: 0.78rem !important;
-    color: #6b7280 !important;
+    font-size: 0.72rem !important;
+    color: #64748b !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-    font-size: 1.3rem !important;
+    font-size: 1.35rem !important;
     font-weight: 700 !important;
+    color: #0f172a !important;
+    letter-spacing: -0.02em;
 }
+
+/* Section titles */
 .section-title {
-    font-size: 1.05rem;
+    font-size: 0.95rem;
     font-weight: 650;
-    color: #111827;
-    margin: 1.4rem 0 0.7rem 0;
+    color: #0f172a;
+    margin: 1.5rem 0 0.65rem 0;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #e2e8f0;
+    letter-spacing: -0.01em;
 }
+
+/* Controls row */
+div[data-testid="stSelectbox"] label,
+div[data-testid="stSlider"] label,
+div[data-testid="stRadio"] label {
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    color: #475569 !important;
+}
+
+/* Table wrapper */
 .ocw {
     overflow-x: auto;
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
-    margin-bottom: 6px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
+
 table.oc {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 12.5px;
-    color: #111827;
+    font-size: 12.2px;
+    color: #0f172a;
     font-variant-numeric: tabular-nums;
-    min-width: 900px;
+    min-width: 920px;
 }
+
 table.oc th {
     position: sticky;
     z-index: 2;
     color: #fff;
-    font-weight: 700;
-    padding: 7px 6px;
+    font-weight: 650;
+    padding: 8px 6px;
     text-align: center;
     white-space: nowrap;
+    letter-spacing: 0.02em;
 }
-table.oc thead tr:first-child th { top: 0; height: 32px; font-size: 13px; }
-table.oc thead tr:nth-child(2) th { top: 32px; height: 28px; font-size: 11.5px; }
+table.oc thead tr:first-child th { top: 0; height: 30px; font-size: 12.5px; }
+table.oc thead tr:nth-child(2) th { top: 30px; height: 26px; font-size: 11px; font-weight: 600; }
+
 table.oc td {
-    padding: 6px 7px;
+    padding: 5.5px 6px;
     text-align: center;
     border-bottom: 1px solid #f1f5f9;
     border-right: 1px solid #f8fafc;
     white-space: nowrap;
 }
-.hc  { background: #c62828; }
-.hc2 { background: #e53935; }
-.hs  { background: #1a3cff; }
-.hp  { background: #0a7d3b; }
-.hp2 { background: #0f9d58; }
+table.oc tbody tr:hover td {
+    background: #f8fafc !important;
+}
+table.oc tbody tr:hover td.stk {
+    background: #e0e7ff !important;
+}
+table.oc tbody tr:hover td.stk.atm {
+    background: #1a3cff !important;
+}
+
+.hc  { background: #b91c1c; }
+.hc2 { background: #dc2626; }
+.hs  { background: #1d4ed8; }
+.hp  { background: #047857; }
+.hp2 { background: #059669; }
+
 td.stk {
     background: #eef2ff;
     font-weight: 700;
-    color: #1a3cff;
-    font-size: 13px;
+    color: #1d4ed8;
+    font-size: 12.8px;
 }
 td.stk.atm {
-    background: #1a3cff;
+    background: #1d4ed8;
     color: #fff;
 }
 .tag {
-    background: #ffd400;
+    background: #fbbf24;
     color: #111;
     font-size: 9px;
-    border-radius: 3px;
+    border-radius: 4px;
     padding: 1px 5px;
-    margin-left: 5px;
+    margin-left: 4px;
     font-weight: 800;
+    letter-spacing: 0.03em;
 }
 tr.atmrow td {
-    border-top: 2px solid #1a3cff;
-    border-bottom: 2px solid #1a3cff;
+    border-top: 2px solid #1d4ed8;
+    border-bottom: 2px solid #1d4ed8;
 }
-td.pos { color: #0a8f3c; font-weight: 600; }
-td.neg { color: #d32f2f; font-weight: 600; }
-td.mxc { box-shadow: inset 0 0 0 2px #d32f2f; font-weight: 800; }
-td.mxp { box-shadow: inset 0 0 0 2px #0a8f3c; font-weight: 800; }
+
+td.pos { color: #047857; font-weight: 600; }
+td.neg { color: #b91c1c; font-weight: 600; }
+td.mxc { box-shadow: inset 0 0 0 2px #dc2626; font-weight: 800; }
+td.mxp { box-shadow: inset 0 0 0 2px #059669; font-weight: 800; }
+
+/* Legend */
 .lg {
     display: flex;
-    gap: 14px;
+    gap: 16px;
     flex-wrap: wrap;
-    margin: 8px 2px 4px;
-    font-size: 12px;
-    color: #6b7280;
+    margin: 10px 2px 6px;
+    font-size: 11.5px;
+    color: #64748b;
+    font-weight: 500;
 }
 .lg span.b {
     display: inline-block;
-    width: 12px;
+    width: 11px;
     height: 11px;
     border-radius: 3px;
     margin-right: 5px;
     vertical-align: -2px;
     border: 1px solid #cbd5e1;
 }
+
 .info-text {
-    font-size: 0.84rem;
-    color: #6b7280;
-    margin: 6px 0 4px 0;
+    font-size: 0.8rem;
+    color: #64748b;
+    margin: 8px 0 2px 0;
+    font-weight: 500;
+    background: #f8fafc;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    display: inline-block;
 }
+
+/* Caption / warning */
+div[data-testid="stCaptionContainer"] {
+    font-size: 0.78rem !important;
+    color: #b45309 !important;
+    background: #fffbeb;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid #fde68a;
+}
+
+/* Hide Streamlit branding slightly */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+header { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -368,7 +469,7 @@ def _fmt(val, name):
 
 
 def _cell(side, name, val, itm, col_max, is_max_oi):
-    bg = "#fff3c4" if itm else "#ffffff"
+    bg = "#fef3c7" if itm else "#ffffff"
     style = f"background:{bg};"
     txt = _fmt(val, name)
     cls = ""
@@ -376,10 +477,10 @@ def _cell(side, name, val, itm, col_max, is_max_oi):
         cls = "pos" if val > 0 else ("neg" if val < 0 else "")
     if name in ("OI", "Vol"):
         pct = min(max(val / col_max * 100, 0), 100) if col_max > 0 else 0
-        rgb = "224,68,90" if side == "C" else "0,160,90"
+        rgb = "220,38,38" if side == "C" else "5,150,105"
         direction = "to left" if side == "C" else "to right"
         style = (
-            f"background:linear-gradient({direction},rgba({rgb},.35) {pct:.1f}%,"
+            f"background:linear-gradient({direction},rgba({rgb},.28) {pct:.1f}%,"
             f"transparent {pct:.1f}%),{bg};"
         )
     if name == "OI" and is_max_oi:
@@ -388,7 +489,6 @@ def _cell(side, name, val, itm, col_max, is_max_oi):
 
 
 def render_averages(view: pd.DataFrame, cols: list) -> str:
-    """Calls + Puts ke averages — table ke upar."""
     if view.empty:
         return ""
 
@@ -407,23 +507,23 @@ def render_averages(view: pd.DataFrame, cols: list) -> str:
     put_names = list(reversed(call_names))
 
     c_cells = "".join(
-        f'<td style="background:#fff3e0;font-weight:700;text-align:center;padding:7px 6px;">{avg(f"C {n}")}</td>'
+        f'<td style="background:#fff7ed;font-weight:700;text-align:center;padding:7px 6px;color:#9a3412;">{avg(f"C {n}")}</td>'
         for n in call_names
     )
-    strike_cell = '<td style="background:#e3f2fd;font-weight:800;text-align:center;color:#1a3cff;padding:7px 6px;">AVG</td>'
+    strike_cell = '<td style="background:#dbeafe;font-weight:800;text-align:center;color:#1d4ed8;padding:7px 6px;font-size:12px;">AVG</td>'
     p_cells = "".join(
-        f'<td style="background:#e8f5e9;font-weight:700;text-align:center;padding:7px 6px;">{avg(f"P {n}")}</td>'
+        f'<td style="background:#ecfdf5;font-weight:700;text-align:center;padding:7px 6px;color:#065f46;">{avg(f"P {n}")}</td>'
         for n in put_names
     )
 
-    html = f'''
-    <div class="ocw" style="margin-bottom:12px;">
+    return f'''
+    <div class="ocw" style="margin-bottom:10px;">
         <table class="oc">
             <thead>
                 <tr>
-                    <th colspan="{len(call_names)}" class="hc" style="font-size:12px;">CALLS — Average</th>
-                    <th class="hs" style="font-size:12px;">Strike</th>
-                    <th colspan="{len(put_names)}" class="hp" style="font-size:12px;">PUTS — Average</th>
+                    <th colspan="{len(call_names)}" class="hc" style="font-size:11.5px;letter-spacing:0.04em;">CALLS — AVERAGE</th>
+                    <th class="hs" style="font-size:11.5px;">STRIKE</th>
+                    <th colspan="{len(put_names)}" class="hp" style="font-size:11.5px;letter-spacing:0.04em;">PUTS — AVERAGE</th>
                 </tr>
                 <tr>
                     {"".join(f'<th class="hc2">{n}</th>' for n in call_names)}
@@ -437,7 +537,6 @@ def render_averages(view: pd.DataFrame, cols: list) -> str:
         </table>
     </div>
     '''
-    return html
 
 
 def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str:
@@ -451,10 +550,11 @@ def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str
                 col_max[key] = max(float(view[key].max()), 1.0)
     max_c = view.loc[view["C OI"].idxmax(), "Strike"] if not view.empty else 0
     max_p = view.loc[view["P OI"].idxmax(), "Strike"] if not view.empty else 0
+
     h = ['<div class="ocw"><table class="oc"><thead>']
     h.append(
         f'<tr><th colspan="{len(call_names)}" class="hc">CALLS</th>'
-        f'<th rowspan="2" class="hs">Strike</th>'
+        f'<th rowspan="2" class="hs">STRIKE</th>'
         f'<th colspan="{len(put_names)}" class="hp">PUTS</th></tr>'
     )
     h.append(
@@ -484,11 +584,11 @@ def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str
     h.append("</tbody></table></div>")
     h.append(
         '<div class="lg">'
-        '<div><span class="b" style="background:#fff3c4"></span>ITM</div>'
+        '<div><span class="b" style="background:#fef3c7"></span>ITM</div>'
         '<div><span class="b" style="background:#fff"></span>OTM</div>'
-        '<div><span class="b" style="background:#1a3cff"></span>ATM</div>'
-        '<div><span class="b" style="box-shadow:inset 0 0 0 2px #d32f2f"></span>Max Call OI</div>'
-        '<div><span class="b" style="box-shadow:inset 0 0 0 2px #0a8f3c"></span>Max Put OI</div>'
+        '<div><span class="b" style="background:#1d4ed8"></span>ATM</div>'
+        '<div><span class="b" style="box-shadow:inset 0 0 0 2px #dc2626"></span>Max Call OI</div>'
+        '<div><span class="b" style="box-shadow:inset 0 0 0 2px #059669"></span>Max Put OI</div>'
         "</div>"
     )
     return "".join(h)
@@ -500,20 +600,21 @@ def grouped_chart(view, spot, c_col, p_col, title, show_zero=False):
                 hovertemplate="Put: %{y:,.0f}<extra></extra>")
     fig.add_bar(x=view["Strike"], y=view[c_col], name="Call", marker_color=RED, marker_line=dict(width=0),
                 hovertemplate="Call: %{y:,.0f}<extra></extra>")
-    fig.add_vline(x=spot, line_dash="dash", line_color="#111827", line_width=1.5,
+    fig.add_vline(x=spot, line_dash="dash", line_color="#0f172a", line_width=1.5,
                   annotation_text=f"Spot {spot:,.0f}", annotation_position="top", annotation_font=dict(size=11))
     if show_zero:
         fig.add_hline(y=0, line_color="#94a3b8", line_width=1, line_dash="dot")
     fig.update_layout(
-        title=dict(text=title, font=dict(size=14, color="#111827"), x=0.01, xanchor="left"),
+        title=dict(text=title, font=dict(size=13, color="#0f172a", family="Inter"), x=0.01, xanchor="left"),
         barmode="group", bargap=0.15, bargroupgap=0.06,
-        template="plotly_white", height=340,
-        margin=dict(l=40, r=15, t=45, b=45),
+        template="plotly_white", height=320,
+        margin=dict(l=40, r=15, t=42, b=42),
         legend=dict(orientation="h", y=1.12, x=1, xanchor="right", bgcolor="rgba(255,255,255,0.9)", borderwidth=0),
         xaxis=dict(tickmode="array", tickvals=list(view["Strike"]),
                    ticktext=[f"{int(s):,}" for s in view["Strike"]], tickangle=-40, tickfont=dict(size=10), showgrid=False),
         yaxis=dict(tickformat=".3s", tickfont=dict(size=10), gridcolor="#f1f5f9"),
         hovermode="x unified", plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+        font=dict(family="Inter"),
     )
     return fig
 
@@ -526,12 +627,13 @@ def total_oi_chart(call_oi, put_oi, pcr):
         hovertemplate="%{x}: %{y:,.0f}<extra></extra>",
     ))
     fig.update_layout(
-        title=dict(text=f"Total OI  |  PCR {pcr:.2f}", font=dict(size=13, color="#111827"), x=0.5, xanchor="center"),
-        template="plotly_white", height=340,
-        margin=dict(l=30, r=15, t=45, b=30),
+        title=dict(text=f"Total OI  ·  PCR {pcr:.2f}", font=dict(size=13, color="#0f172a", family="Inter"), x=0.5, xanchor="center"),
+        template="plotly_white", height=320,
+        margin=dict(l=30, r=15, t=42, b=30),
         yaxis=dict(tickformat=".3s", gridcolor="#f1f5f9", range=[0, max(put_oi, call_oi) * 1.2]),
         xaxis=dict(showgrid=False), showlegend=False,
         plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+        font=dict(family="Inter"),
     )
     return fig
 
@@ -539,7 +641,7 @@ def total_oi_chart(call_oi, put_oi, pcr):
 # -------------------- Main App --------------------
 st.markdown('<div class="main-title">Option Chain Pro</div>', unsafe_allow_html=True)
 st.markdown(
-    f'<div class="main-subtitle">Live NSE data • Auto refresh every {REFRESH_SECONDS} seconds</div>',
+    f'<div class="main-subtitle">Live NSE data  ·  Auto refresh every {REFRESH_SECONDS}s</div>',
     unsafe_allow_html=True
 )
 
@@ -617,7 +719,7 @@ def data_section():
     m6.metric("Max Pain", f"{max_pain:,.0f}")
 
     st.markdown(
-        f'<div class="info-text">NSE Time: {nse_time} &nbsp;•&nbsp; Last refresh: {fetched_at.strftime("%H:%M:%S")} &nbsp;•&nbsp; Auto every {REFRESH_SECONDS}s</div>',
+        f'<div class="info-text">NSE Time: {nse_time}  ·  Last refresh: {fetched_at.strftime("%H:%M:%S")}  ·  Auto every {REFRESH_SECONDS}s</div>',
         unsafe_allow_html=True
     )
 
@@ -625,17 +727,14 @@ def data_section():
     if "C Bid" in full.columns and "C Ask" in full.columns:
         has_bid_ask = (full["C Bid"].sum() + full["C Ask"].sum() + full["P Bid"].sum() + full["P Ask"].sum()) > 0
     if view_mode.startswith("Full") and not has_bid_ask:
-        st.caption("⚠️ NSE public API currently does not send Bid/Ask. Columns will fill if NSE restores the data.")
+        st.caption("NSE public API currently does not send Bid/Ask. Columns will fill if NSE restores the data.")
 
     st.markdown('<div class="section-title">Option Chain</div>', unsafe_allow_html=True)
     lo = max(atm_pos - n_strikes, 0)
     hi = min(atm_pos + n_strikes + 1, len(full))
     view = full.iloc[lo:hi].reset_index(drop=True)
 
-    # ---- Averages (upar) ----
     st.markdown(render_averages(view, cols_list), unsafe_allow_html=True)
-
-    # ---- Main Table ----
     st.markdown(render_table(view, spot, atm, cols_list), unsafe_allow_html=True)
 
     st.markdown('<div class="section-title">Open Interest & Volume</div>', unsafe_allow_html=True)
