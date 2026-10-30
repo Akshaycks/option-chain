@@ -1,8 +1,10 @@
 """
-Option Chain Pro - Clean UI (v5.3)
-- Better Symbol chips (no search box)
-- No full page blink on refresh
-- Bid/Ask multi-key fallback (NSE field names change)
+Option Chain Pro - Clean UI (v5.4) - Fast Version
+- Session reuse (no extra requests every time)
+- Cache TTL = 3 sec (fresh data)
+- Auto refresh every 3 seconds
+- Bid/Ask multi-key fallback
+- No full page blink
 """
 import time
 from datetime import datetime
@@ -18,7 +20,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-REFRESH_SECONDS = 1
+REFRESH_SECONDS = 3          # UI refresh interval
+CACHE_TTL = 3                # Data cache (seconds)
+
 NSE_HOME = "https://www.nseindia.com"
 NSE_API_V3 = f"{NSE_HOME}/api/option-chain-v3"
 NSE_CONTRACT_INFO = f"{NSE_HOME}/api/option-chain-contract-info"
@@ -55,21 +59,22 @@ COLS_FULL = [
     ("Vol", "totalTradedVolume"),
     ("LTP", "lastPrice"),
     ("Chg%", "pChange"),
-    ("Bid", "bid"),   # special handling below
-    ("Ask", "ask"),   # special handling below
+    ("Bid", "bid"),
+    ("Ask", "ask"),
 ]
 
 GREEN = "#00a05a"
 RED = "#e0445a"
 
 
-def _new_session() -> requests.Session:
+# -------------------- Session (reused, not recreated every time) --------------------
+@st.cache_resource
+def get_nse_session():
     s = requests.Session()
     s.headers.update(HEADERS)
     try:
         s.get(NSE_HOME, timeout=8)
         s.get(f"{NSE_HOME}/option-chain", timeout=8)
-        time.sleep(0.3)
     except Exception:
         pass
     return s
@@ -85,7 +90,7 @@ def fetch_expiries(symbol: str):
     last_err = None
     for _ in range(3):
         try:
-            s = _new_session()
+            s = get_nse_session()
             r = s.get(f"{NSE_CONTRACT_INFO}?symbol={symbol.upper()}", timeout=10)
             r.raise_for_status()
             exp = r.json().get("expiryDates")
@@ -93,21 +98,21 @@ def fetch_expiries(symbol: str):
                 return exp
         except Exception as e:
             last_err = e
-            time.sleep(1.2)
+            time.sleep(0.8)
     raise RuntimeError(f"Expiry list nahi mili ({symbol}): {last_err}")
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def fetch_nse_data(symbol: str, expiry: str):
     last_err = None
     inst_type = get_instrument_type(symbol)
     for _ in range(3):
         try:
-            s = _new_session()
+            s = get_nse_session()
             r = s.get(
                 NSE_API_V3,
                 params={"type": inst_type, "symbol": symbol.upper(), "expiry": expiry},
-                timeout=12,
+                timeout=10,
             )
             r.raise_for_status()
             data = r.json()
@@ -115,7 +120,7 @@ def fetch_nse_data(symbol: str, expiry: str):
                 return data["records"], datetime.now()
         except Exception as e:
             last_err = e
-            time.sleep(1.5)
+            time.sleep(0.8)
     raise RuntimeError(f"NSE se data nahi aaya ({symbol}): {last_err}")
 
 
@@ -126,7 +131,6 @@ def _normalize_expiry(exp: str) -> str:
 
 
 def _get_bid_ask(side_data: dict, which: str):
-    """NSE kabhi different keys use karta hai. Sab try karo."""
     if which == "bid":
         keys = ["bidprice", "bidPrice", "buyPrice1", "bid", "bestBid", "buyprice1"]
     else:
@@ -178,7 +182,6 @@ def build_chain(records: dict, expiry: str) -> pd.DataFrame:
         row["P Vol"] = pe.get("totalTradedVolume") or 0
         rows.append(row)
 
-    # Fallback: agar expiry filter se kuch nahi mila to saari rows le lo
     if not rows:
         for item in data_list:
             ce = item.get("CE") or {}
@@ -242,32 +245,6 @@ st.markdown("""
     font-size: 0.88rem;
     color: #6b7280;
     margin-bottom: 1.2rem;
-}
-.symbol-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 1.3rem;
-}
-.chip {
-    padding: 7px 16px;
-    border-radius: 20px;
-    font-size: 0.88rem;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1.5px solid #e2e8f0;
-    background: #f8fafc;
-    color: #374151;
-    transition: all 0.15s;
-}
-.chip:hover {
-    border-color: #93c5fd;
-    background: #eff6ff;
-}
-.chip-active {
-    background: #1a3cff !important;
-    color: white !important;
-    border-color: #1a3cff !important;
 }
 div[data-testid="stMetric"] {
     background: #ffffff;
@@ -509,7 +486,10 @@ def total_oi_chart(call_oi, put_oi, pcr):
 
 # -------------------- Main App --------------------
 st.markdown('<div class="main-title">Option Chain Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="main-subtitle">Live NSE data • Auto refresh every 60 seconds</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="main-subtitle">Live NSE data • Auto refresh every {REFRESH_SECONDS} seconds</div>',
+    unsafe_allow_html=True
+)
 
 # ---------- Symbol Selection ----------
 if "symbol" not in st.session_state:
@@ -592,12 +572,12 @@ def data_section():
         unsafe_allow_html=True
     )
 
-    # Bid/Ask availability note
+    # Bid/Ask note
     has_bid_ask = False
     if "C Bid" in full.columns and "C Ask" in full.columns:
         has_bid_ask = (full["C Bid"].sum() + full["C Ask"].sum() + full["P Bid"].sum() + full["P Ask"].sum()) > 0
     if view_mode.startswith("Full") and not has_bid_ask:
-        st.caption("⚠️ NSE public API currently does not send Bid/Ask in option-chain response. Columns will fill automatically if NSE restores the data.")
+        st.caption("⚠️ NSE public API currently does not send Bid/Ask. Columns will fill if NSE restores the data.")
 
     # Table
     st.markdown('<div class="section-title">Option Chain</div>', unsafe_allow_html=True)
