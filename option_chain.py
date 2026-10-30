@@ -1,12 +1,11 @@
 """
-Option Chain Pro - Clean UI (v5.2)
+Option Chain Pro - Clean UI (v5.3)
 - Better Symbol chips (no search box)
 - No full page blink on refresh
+- Bid/Ask multi-key fallback (NSE field names change)
 """
-
 import time
 from datetime import datetime
-
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -20,7 +19,6 @@ st.set_page_config(
 )
 
 REFRESH_SECONDS = 60
-
 NSE_HOME = "https://www.nseindia.com"
 NSE_API_V3 = f"{NSE_HOME}/api/option-chain-v3"
 NSE_CONTRACT_INFO = f"{NSE_HOME}/api/option-chain-contract-info"
@@ -57,8 +55,8 @@ COLS_FULL = [
     ("Vol", "totalTradedVolume"),
     ("LTP", "lastPrice"),
     ("Chg%", "pChange"),
-    ("Bid", "bidprice"),
-    ("Ask", "askPrice"),
+    ("Bid", "bid"),   # special handling below
+    ("Ask", "ask"),   # special handling below
 ]
 
 GREEN = "#00a05a"
@@ -127,6 +125,24 @@ def _normalize_expiry(exp: str) -> str:
     return str(exp).strip().upper().replace(" ", "").replace("-", "").replace("/", "")
 
 
+def _get_bid_ask(side_data: dict, which: str):
+    """NSE kabhi different keys use karta hai. Sab try karo."""
+    if which == "bid":
+        keys = ["bidprice", "bidPrice", "buyPrice1", "bid", "bestBid", "buyprice1"]
+    else:
+        keys = ["askPrice", "askprice", "sellPrice1", "ask", "bestAsk", "sellprice1"]
+    for k in keys:
+        val = side_data.get(k)
+        if val is not None and val != "" and val != "-":
+            try:
+                f = float(val)
+                if f != 0:
+                    return f
+            except (TypeError, ValueError):
+                pass
+    return 0
+
+
 def build_chain(records: dict, expiry: str) -> pd.DataFrame:
     rows = []
     target = _normalize_expiry(expiry)
@@ -140,15 +156,20 @@ def build_chain(records: dict, expiry: str) -> pd.DataFrame:
         item_exp = item.get("expiryDate") or ce.get("expiryDate") or pe.get("expiryDate") or ""
         if target and _normalize_expiry(item_exp) and _normalize_expiry(item_exp) != target:
             continue
-
         strike = item.get("strikePrice")
         if strike is None:
             continue
-
         row = {"Strike": float(strike)}
         for name, key in COLS_FULL:
-            row[f"C {name}"] = ce.get(key) or 0
-            row[f"P {name}"] = pe.get(key) or 0
+            if name == "Bid":
+                row[f"C {name}"] = _get_bid_ask(ce, "bid")
+                row[f"P {name}"] = _get_bid_ask(pe, "bid")
+            elif name == "Ask":
+                row[f"C {name}"] = _get_bid_ask(ce, "ask")
+                row[f"P {name}"] = _get_bid_ask(pe, "ask")
+            else:
+                row[f"C {name}"] = ce.get(key) or 0
+                row[f"P {name}"] = pe.get(key) or 0
         row["C OI"] = ce.get("openInterest") or 0
         row["P OI"] = pe.get("openInterest") or 0
         row["C dOI"] = ce.get("changeinOpenInterest") or 0
@@ -157,6 +178,7 @@ def build_chain(records: dict, expiry: str) -> pd.DataFrame:
         row["P Vol"] = pe.get("totalTradedVolume") or 0
         rows.append(row)
 
+    # Fallback: agar expiry filter se kuch nahi mila to saari rows le lo
     if not rows:
         for item in data_list:
             ce = item.get("CE") or {}
@@ -166,8 +188,15 @@ def build_chain(records: dict, expiry: str) -> pd.DataFrame:
                 continue
             row = {"Strike": float(strike)}
             for name, key in COLS_FULL:
-                row[f"C {name}"] = ce.get(key) or 0
-                row[f"P {name}"] = pe.get(key) or 0
+                if name == "Bid":
+                    row[f"C {name}"] = _get_bid_ask(ce, "bid")
+                    row[f"P {name}"] = _get_bid_ask(pe, "bid")
+                elif name == "Ask":
+                    row[f"C {name}"] = _get_bid_ask(ce, "ask")
+                    row[f"P {name}"] = _get_bid_ask(pe, "ask")
+                else:
+                    row[f"C {name}"] = ce.get(key) or 0
+                    row[f"P {name}"] = pe.get(key) or 0
             row["C OI"] = ce.get("openInterest") or 0
             row["P OI"] = pe.get("openInterest") or 0
             row["C dOI"] = ce.get("changeinOpenInterest") or 0
@@ -203,8 +232,6 @@ st.markdown("""
     padding-bottom: 2rem;
     max-width: 1400px;
 }
-
-/* Header */
 .main-title {
     font-size: 1.7rem;
     font-weight: 700;
@@ -216,8 +243,6 @@ st.markdown("""
     color: #6b7280;
     margin-bottom: 1.2rem;
 }
-
-/* Symbol Chips */
 .symbol-chips {
     display: flex;
     flex-wrap: wrap;
@@ -244,8 +269,6 @@ st.markdown("""
     color: white !important;
     border-color: #1a3cff !important;
 }
-
-/* Metrics */
 div[data-testid="stMetric"] {
     background: #ffffff;
     border: 1px solid #e5e7eb;
@@ -261,16 +284,12 @@ div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
     font-size: 1.3rem !important;
     font-weight: 700 !important;
 }
-
-/* Section */
 .section-title {
     font-size: 1.05rem;
     font-weight: 650;
     color: #111827;
     margin: 1.4rem 0 0.7rem 0;
 }
-
-/* Table */
 .ocw {
     overflow-x: auto;
     background: #ffffff;
@@ -338,7 +357,6 @@ td.pos { color: #0a8f3c; font-weight: 600; }
 td.neg { color: #d32f2f; font-weight: 600; }
 td.mxc { box-shadow: inset 0 0 0 2px #d32f2f; font-weight: 800; }
 td.mxp { box-shadow: inset 0 0 0 2px #0a8f3c; font-weight: 800; }
-
 .lg {
     display: flex;
     gap: 14px;
@@ -356,7 +374,6 @@ td.mxp { box-shadow: inset 0 0 0 2px #0a8f3c; font-weight: 800; }
     vertical-align: -2px;
     border: 1px solid #cbd5e1;
 }
-
 .info-text {
     font-size: 0.84rem;
     color: #6b7280;
@@ -397,17 +414,14 @@ def _cell(side, name, val, itm, col_max, is_max_oi):
 def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str:
     call_names = [n for n, _ in cols]
     put_names = list(reversed(call_names))
-
     col_max = {}
     for s in ("C", "P"):
         for n in ("OI", "Vol"):
             key = f"{s} {n}"
             if key in view.columns:
                 col_max[key] = max(float(view[key].max()), 1.0)
-
     max_c = view.loc[view["C OI"].idxmax(), "Strike"] if not view.empty else 0
     max_p = view.loc[view["P OI"].idxmax(), "Strike"] if not view.empty else 0
-
     h = ['<div class="ocw"><table class="oc"><thead>']
     h.append(
         f'<tr><th colspan="{len(call_names)}" class="hc">CALLS</th>'
@@ -420,13 +434,11 @@ def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str
         + "".join(f'<th class="hp2">{n}</th>' for n in put_names)
         + "</tr></thead><tbody>"
     )
-
     for _, r in view.iterrows():
         k = r["Strike"]
         call_itm = k < spot
         put_itm = k > spot
         row_cls = "atmrow" if k == atm else ""
-
         cells = [
             _cell("C", n, r.get(f"C {n}", 0), call_itm, col_max.get(f"C {n}", 1), k == max_c)
             for n in call_names
@@ -440,7 +452,6 @@ def render_table(view: pd.DataFrame, spot: float, atm: float, cols: list) -> str
             for n in put_names
         ]
         h.append(f'<tr class="{row_cls}">' + "".join(cells) + "</tr>")
-
     h.append("</tbody></table></div>")
     h.append(
         '<div class="lg">'
@@ -500,11 +511,10 @@ def total_oi_chart(call_oi, put_oi, pcr):
 st.markdown('<div class="main-title">Option Chain Pro</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-subtitle">Live NSE data • Auto refresh every 60 seconds</div>', unsafe_allow_html=True)
 
-# ---------- Symbol Selection (Clean Chips) ----------
+# ---------- Symbol Selection ----------
 if "symbol" not in st.session_state:
     st.session_state.symbol = "NIFTY"
 
-# Create chips using buttons in columns
 st.markdown("**Select Symbol**")
 cols = st.columns(8)
 for idx, sym in enumerate(POPULAR_SYMBOLS):
@@ -521,7 +531,8 @@ for idx, sym in enumerate(POPULAR_SYMBOLS):
 
 symbol = st.session_state.symbol
 
-# ---------- Data Section (Fragment - only this part refreshes) ----------
+
+# ---------- Data Section (Fragment) ----------
 @st.fragment(run_every=REFRESH_SECONDS)
 def data_section():
     try:
@@ -561,7 +572,6 @@ def data_section():
     atm_pos = int((full["Strike"] - spot).abs().idxmin())
     atm = float(full.loc[atm_pos, "Strike"])
     max_pain = calculate_max_pain(full)
-
     call_oi = float(full["C OI"].sum())
     put_oi = float(full["P OI"].sum())
     pcr = put_oi / call_oi if call_oi else 0.0
@@ -581,6 +591,13 @@ def data_section():
         f'<div class="info-text">NSE Time: {nse_time} &nbsp;•&nbsp; Last refresh: {fetched_at.strftime("%H:%M:%S")} &nbsp;•&nbsp; Auto every {REFRESH_SECONDS}s</div>',
         unsafe_allow_html=True
     )
+
+    # Bid/Ask availability note
+    has_bid_ask = False
+    if "C Bid" in full.columns and "C Ask" in full.columns:
+        has_bid_ask = (full["C Bid"].sum() + full["C Ask"].sum() + full["P Bid"].sum() + full["P Ask"].sum()) > 0
+    if view_mode.startswith("Full") and not has_bid_ask:
+        st.caption("⚠️ NSE public API currently does not send Bid/Ask in option-chain response. Columns will fill automatically if NSE restores the data.")
 
     # Table
     st.markdown('<div class="section-title">Option Chain</div>', unsafe_allow_html=True)
@@ -602,17 +619,14 @@ def data_section():
             total_oi_chart(call_oi, put_oi, pcr),
             use_container_width=True, theme=None, config={"displayModeBar": False}
         )
-
     st.plotly_chart(
         grouped_chart(view, spot, "C dOI", "P dOI", f"Change in OI — {symbol} {expiry}", show_zero=True),
         use_container_width=True, theme=None, config={"displayModeBar": False}
     )
-
     st.plotly_chart(
         grouped_chart(view, spot, "C Vol", "P Vol", f"Volume — {symbol} {expiry}"),
         use_container_width=True, theme=None, config={"displayModeBar": False}
     )
 
 
-# Run only the data part in fragment (symbol chips stay stable)
 data_section()
