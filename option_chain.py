@@ -18,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-REFRESH_SECONDS = 60
+REFRESH_SECONDS = 1
 NSE_HOME = "https://www.nseindia.com"
 NSE_API_V3 = f"{NSE_HOME}/api/option-chain-v3"
 NSE_CONTRACT_INFO = f"{NSE_HOME}/api/option-chain-contract-info"
